@@ -110,8 +110,8 @@ public class CommandBuilder
         // Return the actual results
         return new ExecutionResult(
             exitCode,
-            stdOutputBuilder.ToString().TrimEnd(), // Trim trailing newline
-            stdErrorBuilder.ToString().TrimEnd()   // Trim trailing newline
+            stdOutputBuilder.ToString().Trim(), // Trim trailing newline
+            stdErrorBuilder.ToString().Trim()   // Trim trailing newline
             );
     }
 }
