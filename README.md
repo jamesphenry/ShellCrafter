@@ -47,9 +47,11 @@ Console\.WriteLine\(</span>"Command failed with exit code: {result.ExitCode}");
 * **`.WithEnvironmentVariable(string key, string? value)`**: ...
 * **`.WithEnvironmentVariables(IDictionary<string, string?> variables)`**: ...
 * **`.WithStandardInput(string input)`**: ...
-* **`.WithProgress(IProgress<StatusUpdate> progress)`**: Registers a handler to receive status updates during execution. *(New)*
-* **`.ExecuteAsync(CancellationToken cancellationToken = default, bool killOnCancel = false)`**: Executes the configured command asynchronously, optionally killing the process on cancellation, and returns an `ExecutionResult`. *(Updated signature)*
+* **`.WithProgress(IProgress<StatusUpdate> progress)`**: ...
+* **`.WithTimeout(TimeSpan duration)`**: Sets a maximum execution duration. Throws `TimeoutException` if exceeded. *(New)*
+* **`.ExecuteAsync(CancellationToken cancellationToken = default, bool killOnCancel = false)`**: Executes the configured command asynchronously... *(Updated note: killOnCancel also applies on timeout)*
 
+> `killOnCancel: true` will also attempt to kill the process if the timeout specified by `.WithTimeout()` is exceeded and cancellation occurs due to that timeout.)
 ## Progress Reporting
 
 You can receive status updates during command execution by providing an `IProgress<StatusUpdate>` handler via the `.WithProgress()` method. The following `StatusUpdate` types (defined as records in the `ShellCrafter` namespace) can be reported:

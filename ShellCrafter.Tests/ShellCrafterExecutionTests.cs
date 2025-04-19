@@ -467,4 +467,50 @@ public class ShellCrafterExecutionTests
         Check.That(middleUpdates.OfType<StdOutDataReceived>().Select(u => u.Data)) // Select the strings
             .IsEquivalentTo(new[] { stdOut1, stdOut2 }); // Check if content is equivalent to the expected array, regardless of order
     }
+
+    [Spec]
+    public async Task Should_throw_TimeoutException_when_timeout_is_exceeded()
+    {
+        // Arrange
+        const int commandDurationSeconds = 5;
+        var timeoutDuration = TimeSpan.FromSeconds(1); // Timeout shorter than command
+        const int maxWaitMilliseconds = 2000; // Max time test should wait 
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "powershell";
+            arguments.Add("-Command");
+            arguments.Add($"Start-Sleep -Seconds {commandDurationSeconds}");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sleep";
+            arguments.Add(commandDurationSeconds.ToString());
+        }
+
+        var stopwatch = new Stopwatch();
+        var commandBuilder = ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .WithTimeout(timeoutDuration); // <-- Use the new method
+
+        // Act & Assert
+        stopwatch.Start();
+        // Use Check.ThatCode (as Check.ThatAsyncCode is obsolete in this version)
+        Check.ThatCode(async () =>
+        {
+            await commandBuilder.ExecuteAsync(killOnCancel: true);
+        })
+            .Throws<TimeoutException>(); // Asserts the expected exception
+
+        // This line is reached only if Throws<T> passes
+        stopwatch.Stop();
+
+        // Assert on duration
+        Check.That(stopwatch.ElapsedMilliseconds).IsStrictlyLessThan(maxWaitMilliseconds);
+        Console.WriteLine($"Threw TimeoutException after {stopwatch.ElapsedMilliseconds} ms (expected < {maxWaitMilliseconds} ms).");
+    }
 }

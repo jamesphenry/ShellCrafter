@@ -19,6 +19,8 @@ public class CommandBuilder
     private string? _workingDirectory = null;
     private string? _standardInput = null;
     private IProgress<StatusUpdate>? _progressHandler = null;
+    private TimeSpan? _timeout = null;
+
 
     // --- Constructor ---
     internal CommandBuilder(string executable)
@@ -63,6 +65,18 @@ public class CommandBuilder
         return this;
     }
 
+    public CommandBuilder WithTimeout(TimeSpan duration)
+    {
+        // Basic validation: Timeout should be positive. 
+        // Timeout.InfiniteTimeSpan is also valid (-1ms). 0 is often problematic.
+        if (duration <= TimeSpan.Zero && duration != Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), "Timeout duration must be positive or Timeout.InfiniteTimeSpan.");
+        }
+        _timeout = duration;
+        return this;
+    }
+
     public CommandBuilder WithProgress(IProgress<StatusUpdate> progress)
     {
         _progressHandler = progress ?? throw new ArgumentNullException(nameof(progress));
@@ -70,8 +84,9 @@ public class CommandBuilder
     }
 
     // --- Execution Orchestrator ---
+    // Corrected ExecuteAsync in CommandBuilder.cs
     public async Task<ExecutionResult> ExecuteAsync(
-        CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default, // External token
         bool killOnCancel = false)
     {
         var processStartInfo = ConfigureProcessStartInfo();
@@ -81,27 +96,63 @@ public class CommandBuilder
 
         var stdOutputBuilder = new StringBuilder();
         var stdErrorBuilder = new StringBuilder();
-        var outputCloseEvent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously); // Use option for safety
+        var outputCloseEvent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var errorCloseEvent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         AttachEventHandlers(process, stdOutputBuilder, stdErrorBuilder, outputCloseEvent, errorCloseEvent);
 
-        StartProcess(process); // Separated Start from Attach/BeginRead
+        // --- Timeout and Cancellation Handling Setup ---
+        CancellationTokenSource? internalTimeoutCts = null;
+        CancellationTokenSource? linkedCts = null;
+        CancellationToken effectiveToken = cancellationToken; // Start with external token
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        // Check if timeout is configured by the user
+        if (_timeout.HasValue && _timeout.Value != Timeout.InfiniteTimeSpan)
+        {
+            internalTimeoutCts = new CancellationTokenSource();
+            try
+            {
+                internalTimeoutCts.CancelAfter(_timeout.Value); // Set timeout
+            }
+            catch (ArgumentOutOfRangeException ex) // Handle potential issue if _timeout is somehow invalid despite earlier check
+            {
+                internalTimeoutCts.Dispose(); // Dispose if CancelAfter fails
+                throw new ArgumentOutOfRangeException(nameof(_timeout), $"Invalid timeout value provided: {_timeout.Value}", ex.Message);
+            }
 
-        await WriteStandardInputAsync(process);
+            // Link internal timeout token with the external token
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, internalTimeoutCts.Token);
+            effectiveToken = linkedCts.Token; // Use the linked token for waiting
+        }
+        // --- End Timeout Setup ---
 
-        // Handles wait, cancellation, kill, and waits for streams
-        await HandleProcessExitAsync(process, killOnCancel, outputCloseEvent.Task, errorCloseEvent.Task, cancellationToken);
+        ExecutionResult? finalResult = null; // Declare here for use after try block
 
-        // If HandleProcessExitAsync didn't throw (i.e., no cancellation), create result
-        var finalResult = CreateFinalResult(process, stdOutputBuilder, stdErrorBuilder);
+        try // Wrap main execution in try/finally to ensure CTS disposal
+        {
+            StartProcess(process);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await WriteStandardInputAsync(process);
 
-        // Report exit and return
-        _progressHandler?.Report(new ProcessExited(finalResult));
-        return finalResult;
+            // Handles wait, cancellation, kill, and waits for streams
+            // Pass the effectiveToken and the specific internalTimeoutCts
+            await HandleProcessExitAsync(process, killOnCancel, outputCloseEvent.Task, errorCloseEvent.Task, effectiveToken, internalTimeoutCts);
+
+            // If HandleProcessExitAsync didn't throw (i.e., no cancellation), create result
+            finalResult = CreateFinalResult(process, stdOutputBuilder, stdErrorBuilder);
+
+            // Report exit and return (Only report if not cancelled)
+            _progressHandler?.Report(new ProcessExited(finalResult)); // Use .Value as finalResult is nullable
+            return finalResult;
+        }
+        // No catch here - HandleProcessExitAsync throws/re-throws appropriately
+        finally
+        {
+            // Ensure CTSs are disposed
+            internalTimeoutCts?.Dispose();
+            linkedCts?.Dispose();
+        }
     }
 
     // --- Private Helper Methods ---
@@ -175,38 +226,65 @@ public class CommandBuilder
         }
     }
 
-    private async Task HandleProcessExitAsync(Process process, bool killOnCancel, Task outputCompletionTask, Task errorCompletionTask, CancellationToken cancellationToken)
+    private async Task HandleProcessExitAsync(Process process, bool killOnCancel, Task outputCompletionTask, Task errorCompletionTask, CancellationToken effectiveToken, CancellationTokenSource? internalTimeoutCts)
     {
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync(effectiveToken);
             await Task.WhenAll(outputCompletionTask, errorCompletionTask);
             //Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Process {process.Id}: Wait completed NORMALLY."); // Debug
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            //Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Process {process.Id}: Caught OperationCanceledException."); // Debug
-            if (killOnCancel) // Only attempt kill if flag is true
+            // Determine if the cancellation was triggered by our internal timeout CTS.
+            // The ?? false handles the case where no timeout was set (_internalTimeoutCts is null).
+            bool timeoutOccurred = internalTimeoutCts?.IsCancellationRequested ?? false;
+
+            if (timeoutOccurred)
             {
-                // Check HasExited defensively before Kill
-                try
+                // --- Timeout Occurred ---
+                Console.WriteLine($"Timeout exceeded for process {process.Id}. killOnCancel={killOnCancel}");
+                if (killOnCancel)
                 {
-                    if (!process.HasExited)
-                    {
-                        //Console.WriteLine($"Attempting to kill process {process.Id}..."); // Debug
-                        process.Kill();
-                        // Consider process.Kill(true) on .NET 5+
-                    }
+                    AttemptKillProcess(process);
                 }
-                catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException || ex is System.ComponentModel.Win32Exception)
-                {
-                    //Console.WriteLine($"Failed or unnecessary to kill process {process.Id}: {ex.Message}"); // Debug
-                    // Swallow exception - best effort kill
-                }
+                // Throw the specific TimeoutException, wrapping the original OCE
+                throw new TimeoutException($"The operation timed out after {_timeout!.Value}.", ex); // Use !.Value as timeoutOccurred is true only if _timeout has value
             }
-            throw; // Always re-throw cancellation exception
+            else
+            {
+                // --- External Cancellation Occurred ---
+                // If OCE was caught and it wasn't our timeout, it must be the external token.
+                Console.WriteLine($"External cancellation requested for process {process.Id}. killOnCancel={killOnCancel}");
+                if (killOnCancel)
+                {
+                    AttemptKillProcess(process);
+                }
+                // Re-throw the original OCE (likely TaskCanceledException) to signal external cancellation
+                throw;
+            }
         }
     }
+
+    private void AttemptKillProcess(Process process)
+    {
+        try
+        {
+            // Check if the process hasn't already exited on its own
+            if (!process.HasExited)
+            {
+                process.Kill();
+                // Consider process.Kill(true) on .NET 5+ to kill child processes too.
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException || ex is System.ComponentModel.Win32Exception)
+        {
+            // Log potential errors during kill (e.g., process already gone, access denied)
+            // For now, we just write to console and swallow - it's a best-effort kill.
+            Console.WriteLine($"Failed or unnecessary to kill process {process.Id}: {ex.Message}");
+        }
+    }
+
 
     private ExecutionResult CreateFinalResult(Process process, StringBuilder stdOutBuilder, StringBuilder stdErrBuilder)
     {
