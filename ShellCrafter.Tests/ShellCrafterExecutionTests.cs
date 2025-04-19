@@ -10,6 +10,13 @@ using System.Collections.Generic;
 using System.Text;
 using System.Diagnostics;
 
+// Helper class within the test file to collect updates
+file class StatusUpdateCollector : IProgress<StatusUpdate>
+{
+    public List<StatusUpdate> Updates { get; } = new();
+    public void Report(StatusUpdate value) => Updates.Add(value);
+}
+
 public class ShellCrafterExecutionTests
 {
     [Spec]
@@ -391,5 +398,76 @@ public class ShellCrafterExecutionTests
             // Ensure CTS is disposed even if test fails unexpectedly before the using statement ends naturally
             cts?.Dispose();
         }
+    }
+
+    [Spec]
+    public async Task Should_report_progress_updates_correctly()
+    {
+        // Arrange
+        const string stdOut1 = "StdOut--Line1";
+        const string stdErr1 = "StdErr--Line1";
+        const string stdOut2 = "StdOut--Line2";
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            // Chain commands using '&'. Need echo for stderr redirection.
+            arguments.Add($"echo {stdOut1} & echo {stdErr1} 1>&2 & echo {stdOut2}");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            // Chain commands using ';'. Need echo for stderr redirection.
+            arguments.Add($"echo {stdOut1} ; echo {stdErr1} 1>&2 ; echo {stdOut2}");
+        }
+
+        var progressCollector = new StatusUpdateCollector();
+
+        // Act: Use the *new* fluent method (which doesn't fully work yet)
+        var finalResult = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .WithProgress(progressCollector) // <-- The new method call!
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(finalResult.ExitCode).IsEqualTo(0); // Verify command ran ok
+
+        // Check the sequence and content of progress updates
+        var updates = progressCollector.Updates;
+        Check.That(updates).HasSize(5); // Started, Out1, Err1, Out2, Exited
+
+        // Check types and data (adjust indices based on actual received order if needed)
+        Check.That(updates[0]).IsInstanceOf<ProcessStarted>();
+        // Check the type first
+        Check.That(updates[0]).IsInstanceOf<ProcessStarted>();
+
+        // Then, cast and check the property (casting is safe because the previous line passed)
+        Check.That(((ProcessStarted)updates[0]).ProcessId).IsStrictlyGreaterThan(0);
+
+        // Check updates[1]
+        Check.That(updates[1]).IsInstanceOf<StdOutDataReceived>(); // Check type
+        Check.That(((StdOutDataReceived)updates[1]).Data).IsEqualTo(stdOut1); // Cast & check property
+
+        // Check updates[2]
+        Check.That(updates[2]).IsInstanceOf<StdErrDataReceived>(); // Check type
+        Check.That(((StdErrDataReceived)updates[2]).Data).IsEqualTo(stdErr1); // Cast & check property
+
+        // Check updates[3]
+        Check.That(updates[3]).IsInstanceOf<StdOutDataReceived>(); // Check type
+        Check.That(((StdOutDataReceived)updates[3]).Data).IsEqualTo(stdOut2); // Cast & check property
+
+        Check.That(updates[4]).IsInstanceOf<ProcessExited>();
+        Check.That((updates[4] as ProcessExited)?.Result).IsEqualTo(finalResult);
+        // Check details of the final result within the update too
+        Check.That((updates[4] as ProcessExited)?.Result.StandardOutput)
+                 .IsEqualTo($"{stdOut1}{Environment.NewLine}{stdOut2}"); // Check combined output
+        Check.That((updates[4] as ProcessExited)?.Result.StandardError)
+                 .IsEqualTo(stdErr1);
     }
 }
