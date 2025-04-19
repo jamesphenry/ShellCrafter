@@ -14,6 +14,8 @@ public class CommandBuilder
     private string? _workingDirectory = null;
     private readonly Dictionary<string, string?> _environmentVariables = new();
     private string? _standardInput = null;
+    private IProgress<StatusUpdate>? _progressHandler = null;
+
 
     internal CommandBuilder(string executable)
     {
@@ -67,27 +69,23 @@ public class CommandBuilder
         var outputCloseEvent = new TaskCompletionSource<bool>();
         var errorCloseEvent = new TaskCompletionSource<bool>();
 
-        process.OutputDataReceived += (sender, e) => {
-            if (e.Data == null)
-            {
-                outputCloseEvent.TrySetResult(true); // Signal that stream is closed
-            }
-            else
-            {
-                stdOutputBuilder.AppendLine(e.Data);
-            }
-        };
+        process.OutputDataReceived += (sender, e) =>
+            // Call the extension method, providing a lambda to create StdOutDataReceived
+            e.HandleDataReceived(
+                stdOutputBuilder,      // The builder for stdout
+                _progressHandler,      // The progress handler
+                outputCloseEvent,      // The TCS for stdout closing
+                data => new StdOutDataReceived(data) // Lambda to create the correct status update
+            );
 
-        process.ErrorDataReceived += (sender, e) => {
-            if (e.Data == null)
-            {
-                errorCloseEvent.TrySetResult(true); // Signal that stream is closed
-            }
-            else
-            {
-                stdErrorBuilder.AppendLine(e.Data);
-            }
-        };
+        process.ErrorDataReceived += (sender, e) =>
+            // Call the extension method, providing a lambda to create StdErrDataReceived
+            e.HandleDataReceived(
+                stdErrorBuilder,       // The builder for stderr
+                _progressHandler,      // The progress handler
+                errorCloseEvent,       // The TCS for stderr closing
+                data => new StdErrDataReceived(data) // Lambda to create the correct status update
+            );
 
         bool isStarted;
         try
@@ -105,6 +103,9 @@ public class CommandBuilder
             // Process failed to start, maybe invalid executable?
             return new ExecutionResult(-1, string.Empty, $"Process failed to start for executable: {_executable}");
         }
+
+        // Report Process Started right after successful start
+        _progressHandler?.Report(new ProcessStarted(process.Id));
 
         // Begin reading streams asynchronously
         process.BeginOutputReadLine();
@@ -126,6 +127,8 @@ public class CommandBuilder
             }
         }
 
+        ExecutionResult finalResult;
+
         try 
         {
             // Wait for the process to exit OR cancellation
@@ -137,44 +140,53 @@ public class CommandBuilder
         }
         catch (OperationCanceledException) // vvv Add catch block vvv
         {
-            Console.WriteLine($"Cancellation requested for process {process.Id}. killOnCancel={killOnCancel}");
             if (killOnCancel && !process.HasExited) // Check if already exited naturally
             {
                 try
                 {
-                    Console.WriteLine($"Attempting to kill process {process.Id}...");
                     process.Kill();
                     // Consider process.Kill(true) on .NET 5+ to kill child processes too.
                     // This might need different configuration/handling.
-                    Console.WriteLine($"Process {process.Id} kill attempted.");
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException)
                 {
-                    // Log or handle scenarios where kill fails (e.g., process already exited, no permissions)
-                    Console.WriteLine($"Failed to kill process {process.Id}: {ex.Message}");
-                    // Swallow exception or handle appropriately? For now, log and continue.
                 }
             }
-            // VERY IMPORTANT: Re-throw the exception to signal cancellation to the caller
             throw;
         }
 
-        // Wait for the process to exit OR cancellation
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(outputCloseEvent.Task, errorCloseEvent.Task);
 
-        // Wait for the stream reading tasks to complete
-        await Task.WhenAll(outputCloseEvent.Task, errorCloseEvent.Task);
-
-        // Check exit code AFTER WaitForExit/WaitForExitAsync
-        int exitCode = process.ExitCode;
-
-        // Return the actual results
-        return new ExecutionResult(
-            exitCode,
-            stdOutputBuilder.ToString().Trim(), // Trim trailing newline
-            stdErrorBuilder.ToString().Trim()   // Trim trailing newline
+            // If no cancellation, create the result normally
+            int exitCode = process.ExitCode;
+            finalResult = new ExecutionResult(
+                exitCode,
+                stdOutputBuilder.ToString().Trim(),
+                stdErrorBuilder.ToString().Trim()
             );
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"Cancellation requested... killOnCancel={killOnCancel}");
+            if (killOnCancel && !process.HasExited)
+            {
+                try { process.Kill(); } catch (Exception ex) { Console.WriteLine($"Failed to kill: {ex.Message}"); }
+            }
+            // What should the 'finalResult' be on cancellation? 
+            // The 'Exited' event might not be meaningful, or we could report a specific state.
+            // For now, let's *not* report ProcessExited if cancelled, just rethrow.
+            throw;
+        }
+
+        // Report Process Exited AFTER successful completion and creating the result
+        _progressHandler?.Report(new ProcessExited(finalResult)); // <<< Report Exited
+
+        return finalResult; // Return the result
     }
+
 
     public CommandBuilder InWorkingDirectory(string path)
     {
@@ -221,6 +233,12 @@ public class CommandBuilder
             _environmentVariables[kvp.Key] = kvp.Value;
         }
 
+        return this;
+    }
+
+    public CommandBuilder WithProgress(IProgress<StatusUpdate> progress)
+    {
+        _progressHandler = progress ?? throw new ArgumentNullException(nameof(progress));
         return this;
     }
 }

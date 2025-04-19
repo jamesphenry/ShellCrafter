@@ -41,13 +41,51 @@ Console\.WriteLine\(</span>"Command failed with exit code: {result.ExitCode}");
 
 ## API Overview
 
-* **`ShellCrafter.Command(string executable)`**: Static entry point to start building a command.
-* **`.WithArguments(params string[] args)`**: Adds arguments to the command line. Handles basic space quoting.
-* **`.InWorkingDirectory(string path)`**: Sets the working directory for the process.
-* **`.WithEnvironmentVariable(string key, string? value)`**: Adds or updates a single environment variable for the process.
-* **`.WithEnvironmentVariables(IDictionary<string, string?> variables)`**: Adds or updates multiple environment variables from a dictionary. *(New)*
-* **`.WithStandardInput(string input)`**: Provides string data to the process's standard input. *(New)*
-* **`.ExecuteAsync(CancellationToken cancellationToken = default)`**: Executes the configured command asynchronously and returns an `ExecutionResult`.
+* **`ShellCrafter.Command(string executable)`**: ...
+* **`.WithArguments(params string[] args)`**: ...
+* **`.InWorkingDirectory(string path)`**: ...
+* **`.WithEnvironmentVariable(string key, string? value)`**: ...
+* **`.WithEnvironmentVariables(IDictionary<string, string?> variables)`**: ...
+* **`.WithStandardInput(string input)`**: ...
+* **`.WithProgress(IProgress<StatusUpdate> progress)`**: Registers a handler to receive status updates during execution. *(New)*
+* **`.ExecuteAsync(CancellationToken cancellationToken = default, bool killOnCancel = false)`**: Executes the configured command asynchronously, optionally killing the process on cancellation, and returns an `ExecutionResult`. *(Updated signature)*
+
+## Progress Reporting
+
+You can receive status updates during command execution by providing an `IProgress<StatusUpdate>` handler via the `.WithProgress()` method. The following `StatusUpdate` types (defined as records in the `ShellCrafter` namespace) can be reported:
+
+* **`ProcessStarted(int ProcessId)`**: Reported once the process has successfully started. Includes the OS process ID.
+* **`StdOutDataReceived(string Data)`**: Reported for each line of data received on standard output. The data is trimmed of leading/trailing whitespace.
+* **`StdErrDataReceived(string Data)`**: Reported for each line of data received on standard error. The data is trimmed of leading/trailing whitespace.
+* **`ProcessExited(ExecutionResult Result)`**: Reported once the process has exited normally (not via cancellation) and all output has been processed. Includes the final `ExecutionResult`.
+
+**Example:**
+
+```csharp
+var progressHandler = new Progress<StatusUpdate>(update =>
+{
+    switch (update)
+    {
+        case ProcessStarted ps:
+            Console.WriteLine(<span class="math-inline">"Process started with ID\: \{ps\.ProcessId\}"\);
+break;
+case StdOutDataReceived so\:
+Console\.WriteLine\(</span>"OUT: {so.Data}");
+            break;
+        case StdErrDataReceived se:
+            Console.WriteLine(<span class="math-inline">"ERR\: \{se\.Data\}"\);
+break;
+case ProcessExited pe\:
+Console\.WriteLine\(</span>"Process exited with code: {pe.Result.ExitCode}");
+            break;
+    }
+});
+
+ExecutionResult result = await ShellCrafter
+    .Command("some_command")
+    .WithProgress(progressHandler)
+    .ExecuteAsync();
+```
 
 # Result Object
 - The ExecuteAsync method returns an ExecutionResult record with the following properties:
