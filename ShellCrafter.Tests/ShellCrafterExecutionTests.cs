@@ -597,4 +597,56 @@ public class ShellCrafterExecutionTests
         Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
         Check.That(result.StandardError).IsEmpty();
     }
+
+    [Spec]
+    public async Task Should_pipe_standard_output_to_stream_correctly()
+    {
+        // Arrange
+        string line1 = "StreamPipe_Line1";
+        string line2 = "StreamPipe_Line2";
+        // --- Change these lines ---
+        // string commandOutput = $"{line1}\r\n{line2}\r\n"; // Old version using CRLF
+        string expectedOutput = $"{line1}\n{line2}\n"; // <<< ALWAYS expect LF ('\n')
+                                                       // --- End Change ---
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            arguments.Add($"powershell -Command \"Write-Host '{line1}'; Write-Host '{line2}'\"");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            arguments.Add($"printf '{line1}\\n{line2}\\n'");
+            // expectedOutput = $"{line1}\n{line2}\n"; // <<< This adjustment is no longer needed as base expectedOutput now uses \n
+        }
+
+        // Create the target MemoryStream
+        using var targetOutputStream = new MemoryStream();
+
+        // Act: Use the *new* piping method (which doesn't fully work yet)
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .PipeStandardOutputTo(targetOutputStream) // <-- The new method call!
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0);
+
+        // Verify the target stream received the correct data
+        targetOutputStream.Position = 0; // Rewind the stream
+        using var reader = new StreamReader(targetOutputStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false); // Use specific encoding
+        string capturedOutput = await reader.ReadToEndAsync();
+        Check.That(capturedOutput).IsEqualTo(expectedOutput);
+
+        // Verify internal capture was disabled (as per our initial design)
+        Check.That(result.StandardOutput).IsEmpty();
+        Check.That(result.StandardError).IsEmpty(); // Expect no errors
+    }
 }
