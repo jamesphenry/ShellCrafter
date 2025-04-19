@@ -27,7 +27,7 @@ public class CommandBuilder
     }
 
     // Make the method async
-    public async Task<ExecutionResult> ExecuteAsync(CancellationToken cancellationToken = default) // Allow cancellation token passing
+    public async Task<ExecutionResult> ExecuteAsync(CancellationToken cancellationToken = default, bool killOnCancel = false) // Allow cancellation token passing
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -124,6 +124,39 @@ public class CommandBuilder
                 await standardInputWriter.WriteAsync(_standardInput);
                 // Explicitly close/dispose happens with 'using' block exit
             }
+        }
+
+        try 
+        {
+            // Wait for the process to exit OR cancellation
+            await process.WaitForExitAsync(cancellationToken);
+
+            // Wait for the stream reading tasks to complete ONLY if exit wasn't cancelled
+            await Task.WhenAll(outputCloseEvent.Task, errorCloseEvent.Task);
+
+        }
+        catch (OperationCanceledException) // vvv Add catch block vvv
+        {
+            Console.WriteLine($"Cancellation requested for process {process.Id}. killOnCancel={killOnCancel}");
+            if (killOnCancel && !process.HasExited) // Check if already exited naturally
+            {
+                try
+                {
+                    Console.WriteLine($"Attempting to kill process {process.Id}...");
+                    process.Kill();
+                    // Consider process.Kill(true) on .NET 5+ to kill child processes too.
+                    // This might need different configuration/handling.
+                    Console.WriteLine($"Process {process.Id} kill attempted.");
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException)
+                {
+                    // Log or handle scenarios where kill fails (e.g., process already exited, no permissions)
+                    Console.WriteLine($"Failed to kill process {process.Id}: {ex.Message}");
+                    // Swallow exception or handle appropriately? For now, log and continue.
+                }
+            }
+            // VERY IMPORTANT: Re-throw the exception to signal cancellation to the caller
+            throw;
         }
 
         // Wait for the process to exit OR cancellation

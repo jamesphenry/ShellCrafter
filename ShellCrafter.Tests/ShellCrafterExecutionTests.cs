@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.TestPlatform.Utilities;
 using System.Collections.Generic;
 using System.Text;
+using System.Diagnostics;
 
 public class ShellCrafterExecutionTests
 {
@@ -321,5 +322,74 @@ public class ShellCrafterExecutionTests
         Check.That(result.ExitCode).IsEqualTo(0);
         Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
         Check.That(result.StandardError).IsEmpty();
+    }
+
+    [Spec]
+    public async Task Should_kill_process_when_cancelled_if_requested()
+    {
+        // Arrange
+        const int commandDurationSeconds = 5; // How long the command would normally run
+        const int cancelAfterMilliseconds = 1000; // Cancel after 1 second
+        const int maxWaitMilliseconds = 2000; // Max time test should wait after cancel
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // executable = "timeout"; // Old command
+            // arguments.Add("/t");
+            // arguments.Add(commandDurationSeconds.ToString());
+            // arguments.Add("/nobreak");
+            executable = "powershell"; // New command
+            arguments.Add("-Command");
+            arguments.Add($"Start-Sleep -Seconds {commandDurationSeconds}");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sleep";
+            arguments.Add(commandDurationSeconds.ToString());
+        }
+
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var stopwatch = new Stopwatch();
+
+        // Act & Assert
+        try
+        {
+            var command = ShellCrafter
+                .Command(executable)
+                .WithArguments(arguments.ToArray())
+                .ExecuteAsync(token, killOnCancel: true); // <-- Pass token and killOnCancel: true
+
+            stopwatch.Start();
+            // Schedule cancellation
+            cts.CancelAfter(cancelAfterMilliseconds);
+
+            await command; // Expecting this to throw OperationCanceledException
+
+            // If it *doesn't* throw, the test fails (should have been cancelled)
+            Assert.Fail("OperationCanceledException was expected but not thrown.");
+        }
+        catch (OperationCanceledException)
+        {
+            stopwatch.Stop();
+            // Assert: Check that cancellation was requested
+            Check.That(token.IsCancellationRequested).IsTrue();
+            // Assert: Check that it cancelled quickly (implying process was killed)
+            Check.That(stopwatch.ElapsedMilliseconds)
+                 .IsStrictlyLessThan(maxWaitMilliseconds);
+            Console.WriteLine($"Cancelled and stopped in {stopwatch.ElapsedMilliseconds} ms (expected < {maxWaitMilliseconds} ms).");
+        }
+        catch (Exception ex)
+        {
+            Assert.Fail($"Unexpected exception type thrown: {ex.GetType().Name}");
+        }
+        finally
+        {
+            // Ensure CTS is disposed even if test fails unexpectedly before the using statement ends naturally
+            cts?.Dispose();
+        }
     }
 }
