@@ -146,4 +146,42 @@ public class ShellCrafterExecutionTests
             }
         }
     }
+
+    [Spec]
+    public async Task Should_return_non_zero_exit_code_for_failing_command()
+    {
+        // Arrange
+        const int expectedExitCode = 99; // Choose a specific non-zero code
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            // "exit /b" sets errorlevel and exits the cmd instance
+            arguments.Add($"exit /b {expectedExitCode}");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            // "exit" command exits the shell with the given code
+            arguments.Add($"exit {expectedExitCode}");
+        }
+
+        // Act: Execute the command that's designed to fail
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .ExecuteAsync();
+
+        // Assert
+        // Verify that the ExitCode matches the specific non-zero code
+        Check.That(result.ExitCode).IsEqualTo(expectedExitCode);
+        // Depending on the command, stdout/stderr might be empty or contain info
+        // For 'exit', they are likely empty. We could assert that if needed.
+        // Check.That(result.StandardOutput).IsEmpty();
+        // Check.That(result.StandardError).IsEmpty(); 
+    }
 }
