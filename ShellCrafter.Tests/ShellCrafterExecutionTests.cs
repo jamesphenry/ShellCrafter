@@ -226,4 +226,46 @@ public class ShellCrafterExecutionTests
         Check.That(result.StandardOutput).IsEqualTo(expectedValue);
         Check.That(result.StandardError).IsEmpty();
     }
+
+    [Spec]
+    public async Task Should_redirect_string_to_standard_input_correctly()
+    {
+        // Arrange
+        // Use Environment.NewLine for cross-platform line endings in the input
+        string inputData = $"InputLine1{Environment.NewLine}InputLine2";
+        string expectedOutput = inputData; // Expect the same data back
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // PowerShell is generally available on modern Windows & handles stdin well
+            executable = "powershell";
+            arguments.Add("-Command");
+            // $input is a PS automatic variable that enumerates stdin lines
+            // Convert to string array, join with newline char from PS perspective (`n)
+            // Alternatively, simply rely on default Out-String behaviour
+            arguments.Add("$input | Out-String");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "cat"; // 'cat' reads stdin and prints it to stdout
+            // No arguments needed for basic 'cat' usage with stdin
+        }
+
+        // Act: Use the *new* fluent method (which doesn't fully work yet)
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray()) // Pass arguments for PowerShell/etc.
+            .WithStandardInput(inputData)       // <-- The new method call!
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0);
+        // StandardOutput should match the input data.
+        // Our Trim() in ExecuteAsync should handle the final trailing newline from cat/powershell.
+        Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
+        Check.That(result.StandardError).IsEmpty();
+    }
 }

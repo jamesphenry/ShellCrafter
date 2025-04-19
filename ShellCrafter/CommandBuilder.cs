@@ -13,6 +13,7 @@ public class CommandBuilder
     private readonly List<string> _arguments = new();
     private string? _workingDirectory = null;
     private readonly Dictionary<string, string?> _environmentVariables = new();
+    private string? _standardInput = null;
 
     internal CommandBuilder(string executable)
     {
@@ -35,12 +36,12 @@ public class CommandBuilder
             Arguments = string.Join(" ", _arguments.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            UseShellExecute = false, // Required for stream redirection
+            RedirectStandardInput = true,
+            UseShellExecute = false, 
             CreateNoWindow = true,  // Don't pop up a window
             WorkingDirectory = _workingDirectory, // Set working directory if specified
-            // Consider setting encoding if needed:
-            // StandardOutputEncoding = Encoding.UTF8, 
-            // StandardErrorEncoding = Encoding.UTF8,
+            StandardOutputEncoding = Encoding.UTF8, 
+            StandardErrorEncoding = Encoding.UTF8,
         };
 
         if (_environmentVariables.Count > 0)
@@ -109,6 +110,22 @@ public class CommandBuilder
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        if (!string.IsNullOrEmpty(_standardInput))
+        {
+            // Get the input stream writer. Using 'using' ensures it's disposed
+            // and the stream is closed, signaling end-of-input to the child process.
+            using (StreamWriter standardInputWriter = process.StandardInput)
+            {
+                // Ensure writer doesn't auto-flush prematurely if not needed,
+                // though for simple WriteAsync it's usually fine.
+                // standardInputWriter.AutoFlush = false; 
+
+                // Write the input data asynchronously
+                await standardInputWriter.WriteAsync(_standardInput);
+                // Explicitly close/dispose happens with 'using' block exit
+            }
+        }
+
         // Wait for the process to exit OR cancellation
         await process.WaitForExitAsync(cancellationToken);
 
@@ -141,6 +158,12 @@ public class CommandBuilder
             throw new ArgumentException("Environment variable key cannot be null or empty.", nameof(key));
         }
         _environmentVariables[key] = value; // Add or overwrite
+        return this;
+    }
+
+    public CommandBuilder WithStandardInput(string input)
+    {
+        _standardInput = input ?? throw new ArgumentNullException(nameof(input)); // Basic check
         return this;
     }
 }
