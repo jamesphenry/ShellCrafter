@@ -54,7 +54,7 @@ Console.WriteLine($"Git Status Exit Code: {result.ExitCode}");
 ```
 
 # Timeout and Cancellation (with Kill)
-```
+```csharp
 using var cts = new CancellationTokenSource();
 // cts.CancelAfter(TimeSpan.FromSeconds(5)); // Optional external cancellation
 
@@ -78,7 +78,7 @@ catch (OperationCanceledException) // Catches external cancellation
 ```
 
 # Progress Reporting
-```
+```csharp
 var progressHandler = new Progress<StatusUpdate>(update =>
 {
     switch (update)
@@ -100,7 +100,7 @@ ExecutionResult result = await ShellCrafter
 > (Note: StdOutDataReceived/StdErrDataReceived are not reported for streams being piped via PipeStandardOutputTo/PipeStandardErrorTo)
 
 # Standard Input (String and Stream)
-```
+```csharp
 // String Input
 ExecutionResult resultString = await ShellCrafter
     .Command("grep")
@@ -119,7 +119,7 @@ Console.WriteLine($"Sort Result (Stream): {resultStream.StandardOutput}");
 ```
 
 # Output/Error Piping
-```
+```csharp
 using var outputCapture = new MemoryStream();
 using var errorCapture = new MemoryStream();
 
