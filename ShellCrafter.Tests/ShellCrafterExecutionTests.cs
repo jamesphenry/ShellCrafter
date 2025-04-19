@@ -184,4 +184,46 @@ public class ShellCrafterExecutionTests
         // Check.That(result.StandardOutput).IsEmpty();
         // Check.That(result.StandardError).IsEmpty(); 
     }
+
+    [Spec]
+    public async Task Should_execute_command_with_specified_environment_variable()
+    {
+        // Arrange
+        const string variableName = "SHELLCRAFTER_SPECIAL_VAR";
+        const string expectedValue = "ShellCrafter_Test_Value_ABC"; // A unique value
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            // Use %VAR_NAME% to access environment variable in cmd
+            arguments.Add($"echo %{variableName}%");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            // Use $VAR_NAME to access environment variable in sh
+            // Wrap command in single quotes for sh -c, use double quotes inside
+            // for variable expansion if variable contained spaces (though ours doesn't).
+            // Safer: 'echo "$VAR_NAME"'
+            arguments.Add($"echo ${variableName}"); // Simple case ok here
+        }
+
+        // Act: Use the *new* fluent method (which doesn't fully work yet)
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithEnvironmentVariable(variableName, expectedValue) // <-- The new method call!
+            .WithArguments(arguments.ToArray())
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0);
+        // Output should be the value we set for the environment variable
+        Check.That(result.StandardOutput).IsEqualTo(expectedValue);
+        Check.That(result.StandardError).IsEmpty();
+    }
 }

@@ -12,6 +12,7 @@ public class CommandBuilder
     private readonly string _executable;
     private readonly List<string> _arguments = new();
     private string? _workingDirectory = null;
+    private readonly Dictionary<string, string?> _environmentVariables = new();
 
     internal CommandBuilder(string executable)
     {
@@ -41,6 +42,14 @@ public class CommandBuilder
             // StandardOutputEncoding = Encoding.UTF8, 
             // StandardErrorEncoding = Encoding.UTF8,
         };
+
+        if (_environmentVariables.Count > 0)
+        {
+            foreach (var kvp in _environmentVariables)
+            {
+                processStartInfo.EnvironmentVariables[kvp.Key] = kvp.Value;
+            }
+        }
 
         using var process = new Process { StartInfo = processStartInfo };
 
@@ -123,5 +132,15 @@ public class CommandBuilder
         // Let's defer validation for now, ProcessStartInfo will error if invalid.
         _workingDirectory = path;
         return this; // Return 'this' for chaining
+    }
+
+    public CommandBuilder WithEnvironmentVariable(string key, string? value) // Allow null to unset/clear maybe?
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            throw new ArgumentException("Environment variable key cannot be null or empty.", nameof(key));
+        }
+        _environmentVariables[key] = value; // Add or overwrite
+        return this;
     }
 }
