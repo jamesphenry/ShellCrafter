@@ -3,6 +3,8 @@
 
 A fluent C# builder API for executing external processes and shell commands with ease and clarity.
 
+[![Create Release Assets](https://github.com/jamesphenry/ShellCrafter/actions/workflows/release-assets.yml/badge.svg?branch=master)](https://github.com/jamesphenry/ShellCrafter/actions/workflows/release-assets.yml)
+
 ## Installation
 
 > [!NOTE]
