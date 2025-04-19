@@ -1,8 +1,10 @@
 ﻿// ShellCrafter/CommandExecutor.cs
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -106,4 +108,5 @@ public class CommandBuilder
         // Pass the fully configured object and execution parameters to the static executor
         return CommandExecutor.ExecuteAsync(_config, cancellationToken, killMode);
     }
+
 }

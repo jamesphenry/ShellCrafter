@@ -1,6 +1,9 @@
 ﻿// ShellCrafter/CommandExecutor.cs
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
+
+[assembly: InternalsVisibleTo("ShellCrafter.Tests")]
 
 namespace ShellCrafter;
 
@@ -103,7 +106,7 @@ internal static class CommandExecutor
         var psi = new ProcessStartInfo
         {
             FileName = config.Executable,
-            Arguments = string.Join(" ", config.Arguments.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
+            Arguments = string.Join(" ", config.Arguments.Select(EscapeArgument)),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
@@ -218,5 +221,32 @@ internal static class CommandExecutor
         string stdOutResult = config.CaptureStdOut && stdOutBuilder != null ? stdOutBuilder.ToString().Trim() : string.Empty;
         string stdErrResult = config.CaptureStdErr && stdErrBuilder != null ? stdErrBuilder.ToString().Trim() : string.Empty;
         return new ExecutionResult(exitCode, stdOutResult, stdErrResult);
+    }
+
+    // Escapes an argument for safe command-line parsing (basic implementation)
+    internal static string EscapeArgument(string arg) // Make internal if it was private
+    {
+        if (!NeedsEscaping(arg))
+        {
+            return arg;
+        }
+
+        var sb = new StringBuilder("\"");
+        foreach (char c in arg)
+        {
+            if (c == '\\') sb.Append("\\\\");
+            else if (c == '"') sb.Append("\\\"");
+            else sb.Append(c);
+        }
+        sb.Append("\"");
+        return sb.ToString();
+    }
+
+    // We will also need a NeedsEscaping helper later
+    private static bool NeedsEscaping(string arg)
+    {
+        // Quote empty strings. Quote strings containing whitespace or quotes.
+        // Make sure char.IsWhiteSpace(c) is used correctly within the Any() lambda.
+        return string.IsNullOrEmpty(arg) || arg.Any(c => char.IsWhiteSpace(c) || c == '"');
     }
 }

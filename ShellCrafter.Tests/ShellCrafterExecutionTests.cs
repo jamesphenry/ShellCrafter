@@ -19,6 +19,41 @@ file class StatusUpdateCollector : IProgress<StatusUpdate>
 
 public class ShellCrafterExecutionTests
 {
+
+    [Spec]
+    public void Should_escape_arguments_correctly()
+    {
+        // Case 1: Simple argument, no changes
+        Check.That(CommandExecutor.EscapeArgument("Simple")).IsEqualTo("Simple");
+
+        // Case 2: Argument with space
+        Check.That(CommandExecutor.EscapeArgument("Arg With Space")).IsEqualTo("\"Arg With Space\"");
+
+        // Case 3: Argument with quote
+        Check.That(CommandExecutor.EscapeArgument("Arg\"With\"Quote")).IsEqualTo("\"Arg\\\"With\\\"Quote\"");
+
+        // Case 4: Argument with backslash (no space/quote - no change)
+        Check.That(CommandExecutor.EscapeArgument(@"Arg\WithSlash")).IsEqualTo(@"Arg\WithSlash");
+
+        // Case 5: Argument with space and backslash
+        Check.That(CommandExecutor.EscapeArgument(@"Arg With\Slash")).IsEqualTo("\"Arg With\\\\Slash\""); // Note double backslash
+
+        // Case 6: Argument with space, quote, and backslash
+        Check.That(CommandExecutor.EscapeArgument("Arg With\\\"QuoteAndSlash")).IsEqualTo("\"Arg With\\\\\\\"QuoteAndSlash\""); // Backslash doubled, Quote escaped
+
+        // Case 7: Argument ending in backslash (no quote needed)
+        Check.That(CommandExecutor.EscapeArgument(@"TrailingSlash\")).IsEqualTo(@"TrailingSlash\");
+
+        // Case 8: Argument ending in backslash before space (needs quote, double final slash)
+        Check.That(CommandExecutor.EscapeArgument(@"TrailingSlash\ WithSpace")).IsEqualTo("\"TrailingSlash\\\\ WithSpace\"");
+
+        // Case 9: Argument ending in quote (needs quote, escape final quote)
+        Check.That(CommandExecutor.EscapeArgument("TrailingQuote\"")).IsEqualTo("\"TrailingQuote\\\"\"");
+
+        // Case 10: Empty string (should be quoted to be safe?) -> ""
+        Check.That(CommandExecutor.EscapeArgument("")).IsEqualTo("\"\"");
+    }
+
     [Spec]
     public async Task Should_Execute_Basic_Command_Successfully()
     {
@@ -604,29 +639,30 @@ public class ShellCrafterExecutionTests
         // Arrange
         string line1 = "StreamPipe_Line1";
         string line2 = "StreamPipe_Line2";
-        // --- Change these lines ---
-        // string commandOutput = $"{line1}\r\n{line2}\r\n"; // Old version using CRLF
-        string expectedOutput = $"{line1}\n{line2}\n"; // <<< ALWAYS expect LF ('\n')
-                                                       // --- End Change ---
+        string expectedOutput = $"{line1}\n{line2}\n"; // Still expect LF due to redirection normalization
 
         string executable;
         List<string> arguments = new();
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            executable = "cmd";
-            arguments.Add("/c");
-            arguments.Add($"powershell -Command \"Write-Host '{line1}'; Write-Host '{line2}'\"");
+            // --- Change Windows command ---
+            // executable = "cmd"; // Old
+            // arguments.Add("/c"); // Old
+            // arguments.Add($"powershell -Command \"Write-Host '{line1}'; Write-Host '{line2}'\""); // Old
+
+            executable = "powershell"; // New: Execute powershell directly
+            arguments.Add("-Command"); // New: Pass -Command argument
+            arguments.Add($"Write-Host '{line1}'; Write-Host '{line2}'"); // New: Pass script string as argument
+            // --- End Change ---
         }
-        else // Assume Linux/macOS
+        else // Linux/macOS
         {
             executable = "sh";
             arguments.Add("-c");
             arguments.Add($"printf '{line1}\\n{line2}\\n'");
-            // expectedOutput = $"{line1}\n{line2}\n"; // <<< This adjustment is no longer needed as base expectedOutput now uses \n
         }
 
-        // Create the target MemoryStream
         using var targetOutputStream = new MemoryStream();
 
         // Act: Use the *new* piping method (which doesn't fully work yet)
