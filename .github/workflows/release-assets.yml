@@ -1,0 +1,84 @@
+# .github/workflows/release-assets.yml
+name: Create Release Assets
+
+# Trigger workflow when a release is published on GitHub
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-package:
+    name: Build, Package, and Upload Release Assets
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner
+
+    permissions:
+      contents: write # Allow uploading release assets
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Checks out the specific tag associated with the release event
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x' # Specify your project's .NET version
+
+      - name: Restore dependencies
+        run: dotnet restore ./ShellCrafter/ShellCrafter.csproj # Adjust path if needed
+
+      - name: Build project
+        run: dotnet build ./ShellCrafter/ShellCrafter.csproj --configuration Release --no-restore
+
+      - name: Pack project
+        run: dotnet pack ./ShellCrafter/ShellCrafter.csproj --configuration Release --no-build --output ./artifacts
+        # Creates the .nupkg file in an 'artifacts' directory
+
+      # --- Prepare Assets ---
+      # Note: Adjust paths and names as needed based on your project structure and target framework
+      - name: Get Release Info
+        id: release_info
+        run: |
+          # Extract version from the tag name (e.g., v0.0.1 -> 0.0.1)
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          # Define asset paths (adjust TFM if needed)
+          echo "dll_path=./ShellCrafter/bin/Release/net8.0/ShellCrafter.dll" >> $GITHUB_OUTPUT
+          echo "nupkg_path=./artifacts/ShellCrafter.$VERSION.nupkg" >> $GITHUB_OUTPUT
+          echo "source_archive_name=ShellCrafter-${{ github.ref_name }}-source.zip" >> $GITHUB_OUTPUT
+
+      - name: Archive source code
+        run: zip -r ./artifacts/${{ steps.release_info.outputs.source_archive_name }} . -x ".git/*" -x ".github/*" -x "**/bin/*" -x "**/obj/*" -x "./artifacts/*"
+        # Creates a zip of the source, excluding build/git/artifact folders
+
+      # --- Upload Assets ---
+      - name: Upload DLL Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ steps.release_info.outputs.dll_path }}
+          asset_name: ShellCrafter.dll # Name shown in release assets
+          asset_content_type: application/octet-stream
+
+      - name: Upload NuGet Package Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ steps.release_info.outputs.nupkg_path }}
+          asset_name: ShellCrafter.${{ steps.release_info.outputs.version }}.nupkg # Name shown in release assets
+          asset_content_type: application/octet-stream
+
+      - name: Upload Source Code Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./artifacts/${{ steps.release_info.outputs.source_archive_name }}
+          asset_name: ${{ steps.release_info.outputs.source_archive_name }} # Name shown in release assets
+          asset_content_type: application/zip
