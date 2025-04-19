@@ -50,6 +50,15 @@ Console\.WriteLine\(</span>"Command failed with exit code: {result.ExitCode}");
 * **`.WithProgress(IProgress<StatusUpdate> progress)`**: ...
 * **`.WithTimeout(TimeSpan duration)`**: Sets a maximum execution duration. Throws `TimeoutException` if exceeded. *(New)*
 * **`.ExecuteAsync(CancellationToken cancellationToken = default, bool killOnCancel = false)`**: Executes the configured command asynchronously... *(Updated note: killOnCancel also applies on timeout)*
+* **`.ExecuteAsync(CancellationToken cancellationToken = default, KillMode killMode = KillMode.NoKill)`**: Executes the configured command asynchronously. The `killMode` parameter determines if/how the process is terminated upon cancellation (external or timeout). Returns an `ExecutionResult`. *(Signature updated)*
+
+## Cancellation Behavior (KillMode)
+
+The `ExecuteAsync` method accepts a `KillMode` enum parameter to control behavior when cancellation occurs (either via the passed `CancellationToken` or an execution timeout):
+
+* **`KillMode.NoKill` (Default):** Only stops waiting for the process; the process itself is not terminated by `ShellCrafter`.
+* **`KillMode.RootProcess`**: Attempts to kill the main process started by `ShellCrafter`.
+* **`KillMode.ProcessTree`**: Attempts to kill the main process *and all its descendant processes* (.NET 5+ required for tree kill).
 
 > `killOnCancel: true` will also attempt to kill the process if the timeout specified by `.WithTimeout()` is exceeded and cancellation occurs due to that timeout.)
 ## Progress Reporting

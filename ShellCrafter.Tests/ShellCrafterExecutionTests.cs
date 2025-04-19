@@ -368,7 +368,7 @@ public class ShellCrafterExecutionTests
             var command = ShellCrafter
                 .Command(executable)
                 .WithArguments(arguments.ToArray())
-                .ExecuteAsync(token, killOnCancel: true); // <-- Pass token and killOnCancel: true
+                .ExecuteAsync(token, killMode: KillMode.RootProcess); // <-- Pass token and killOnCancel: true
 
             stopwatch.Start();
             // Schedule cancellation
@@ -502,7 +502,7 @@ public class ShellCrafterExecutionTests
         // Use Check.ThatCode (as Check.ThatAsyncCode is obsolete in this version)
         Check.ThatCode(async () =>
         {
-            await commandBuilder.ExecuteAsync(killOnCancel: true);
+            await commandBuilder.ExecuteAsync(killMode: KillMode.RootProcess);
         })
             .Throws<TimeoutException>(); // Asserts the expected exception
 
@@ -512,5 +512,51 @@ public class ShellCrafterExecutionTests
         // Assert on duration
         Check.That(stopwatch.ElapsedMilliseconds).IsStrictlyLessThan(maxWaitMilliseconds);
         Console.WriteLine($"Threw TimeoutException after {stopwatch.ElapsedMilliseconds} ms (expected < {maxWaitMilliseconds} ms).");
+    }
+
+    [Spec] // Or rename if you duplicated
+    public async Task Should_attempt_kill_process_tree_when_cancelled() // Renamed test
+    {
+        // Arrange - Identical to the root process kill test
+        const int commandDurationSeconds = 5;
+        var timeoutDuration = TimeSpan.FromSeconds(1);
+        const int maxWaitMilliseconds = 2000;
+
+        string executable; List<string> arguments = new(); // ... setup sleep/powershell command ...
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "powershell";
+            arguments.Add("-Command");
+            arguments.Add($"Start-Sleep -Seconds {commandDurationSeconds}");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sleep";
+            arguments.Add(commandDurationSeconds.ToString());
+        }
+
+        using var cts = new CancellationTokenSource();
+        var stopwatch = new Stopwatch();
+        var commandBuilder = ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            // Include timeout to trigger cancellation easily for the test
+            .WithTimeout(timeoutDuration);
+
+        // Act & Assert
+        stopwatch.Start();
+        // Use Check.ThatCode (assuming it now compiles)
+        Check.ThatCode(async () =>
+        {
+            // vvv Use KillMode.ProcessTree vvv
+            await commandBuilder.ExecuteAsync(cancellationToken: cts.Token, killMode: KillMode.ProcessTree);
+        })
+            .Throws<TimeoutException>(); // Still expect TimeoutException due to WithTimeout
+        stopwatch.Stop();
+
+        // Assert on duration - ensures kill attempt happened quickly
+        Check.That(stopwatch.ElapsedMilliseconds).IsStrictlyLessThan(maxWaitMilliseconds);
+        Console.WriteLine($"Process tree kill attempted, threw TimeoutException after {stopwatch.ElapsedMilliseconds} ms (expected < {maxWaitMilliseconds} ms).");
     }
 }

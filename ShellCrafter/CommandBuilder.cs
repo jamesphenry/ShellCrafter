@@ -87,7 +87,7 @@ public class CommandBuilder
     // Corrected ExecuteAsync in CommandBuilder.cs
     public async Task<ExecutionResult> ExecuteAsync(
         CancellationToken cancellationToken = default, // External token
-        bool killOnCancel = false)
+        KillMode killMode = KillMode.NoKill)
     {
         var processStartInfo = ConfigureProcessStartInfo();
 
@@ -137,7 +137,7 @@ public class CommandBuilder
 
             // Handles wait, cancellation, kill, and waits for streams
             // Pass the effectiveToken and the specific internalTimeoutCts
-            await HandleProcessExitAsync(process, killOnCancel, outputCloseEvent.Task, errorCloseEvent.Task, effectiveToken, internalTimeoutCts);
+            await HandleProcessExitAsync(process, killMode, outputCloseEvent.Task, errorCloseEvent.Task, effectiveToken, internalTimeoutCts);
 
             // If HandleProcessExitAsync didn't throw (i.e., no cancellation), create result
             finalResult = CreateFinalResult(process, stdOutputBuilder, stdErrorBuilder);
@@ -226,7 +226,7 @@ public class CommandBuilder
         }
     }
 
-    private async Task HandleProcessExitAsync(Process process, bool killOnCancel, Task outputCompletionTask, Task errorCompletionTask, CancellationToken effectiveToken, CancellationTokenSource? internalTimeoutCts)
+    private async Task HandleProcessExitAsync(Process process, KillMode killMode, Task outputCompletionTask, Task errorCompletionTask, CancellationToken effectiveToken, CancellationTokenSource? internalTimeoutCts) // <<< Use KillMode
     {
         try
         {
@@ -243,10 +243,12 @@ public class CommandBuilder
             if (timeoutOccurred)
             {
                 // --- Timeout Occurred ---
-                Console.WriteLine($"Timeout exceeded for process {process.Id}. killOnCancel={killOnCancel}");
-                if (killOnCancel)
+                if (timeoutOccurred)
                 {
-                    AttemptKillProcess(process);
+                    if (killMode != KillMode.NoKill) // Check if any kill is requested
+                    {
+                        AttemptKillProcess(process, killMode); // Pass killMode
+                    }
                 }
                 // Throw the specific TimeoutException, wrapping the original OCE
                 throw new TimeoutException($"The operation timed out after {_timeout!.Value}.", ex); // Use !.Value as timeoutOccurred is true only if _timeout has value
@@ -255,10 +257,9 @@ public class CommandBuilder
             {
                 // --- External Cancellation Occurred ---
                 // If OCE was caught and it wasn't our timeout, it must be the external token.
-                Console.WriteLine($"External cancellation requested for process {process.Id}. killOnCancel={killOnCancel}");
-                if (killOnCancel)
+                if (killMode != KillMode.NoKill) // Check if any kill is requested
                 {
-                    AttemptKillProcess(process);
+                    AttemptKillProcess(process, killMode); // Pass killMode
                 }
                 // Re-throw the original OCE (likely TaskCanceledException) to signal external cancellation
                 throw;
@@ -266,25 +267,39 @@ public class CommandBuilder
         }
     }
 
-    private void AttemptKillProcess(Process process)
+    private void AttemptKillProcess(Process process, KillMode killMode) // Accepts KillMode now
     {
+        // Should only be called if killMode is RootProcess or ProcessTree
+        if (killMode == KillMode.NoKill) return;
+
         try
         {
-            // Check if the process hasn't already exited on its own
             if (!process.HasExited)
             {
-                process.Kill();
-                // Consider process.Kill(true) on .NET 5+ to kill child processes too.
+                if (killMode == KillMode.ProcessTree)
+                {
+#if NET5_0_OR_GREATER // Check if targeting .NET 5 or later
+                    Console.WriteLine($"Attempting to kill process tree starting with {process.Id}..."); // Debug/Log
+                    process.Kill(true); // Kill the entire process tree
+#else
+                // Fallback for older frameworks that don't support killing the tree
+                 Console.WriteLine($"Attempting to kill root process {process.Id} (Tree kill not supported on this framework)..."); // Debug/Log
+                 process.Kill(); 
+#endif
+                }
+                else // killMode == KillMode.RootProcess
+                {
+                    Console.WriteLine($"Attempting to kill root process {process.Id}..."); // Debug/Log
+                    process.Kill(); // Kill just the root process
+                }
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException || ex is System.ComponentModel.Win32Exception)
         {
-            // Log potential errors during kill (e.g., process already gone, access denied)
-            // For now, we just write to console and swallow - it's a best-effort kill.
-            Console.WriteLine($"Failed or unnecessary to kill process {process.Id}: {ex.Message}");
+            Console.WriteLine($"Failed or unnecessary to kill process {process.Id}: {ex.Message}"); // Debug/Log
+                                                                                                    // Swallow exception - best effort kill
         }
     }
-
 
     private ExecutionResult CreateFinalResult(Process process, StringBuilder stdOutBuilder, StringBuilder stdErrBuilder)
     {
