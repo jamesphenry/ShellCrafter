@@ -39,12 +39,16 @@ Console\.WriteLine\(</span>"Command failed with exit code: {result.ExitCode}");
 }
 ```
 
-# API Overview
-- ShellCrafter.Command(string executable): Static entry point to start building a command.
-- .WithArguments(params string[] args): Adds arguments to the command line. Handles basic space quoting.
-- .InWorkingDirectory(string path): Sets the working directory for the process.
-- .WithEnvironmentVariable(string key, string? value): Adds or updates an environment variable for the process.
-- .ExecuteAsync(CancellationToken cancellationToken = default): Executes the configured command asynchronously and returns an ExecutionResult.
+## API Overview
+
+* **`ShellCrafter.Command(string executable)`**: Static entry point to start building a command.
+* **`.WithArguments(params string[] args)`**: Adds arguments to the command line. Handles basic space quoting.
+* **`.InWorkingDirectory(string path)`**: Sets the working directory for the process.
+* **`.WithEnvironmentVariable(string key, string? value)`**: Adds or updates a single environment variable for the process.
+* **`.WithEnvironmentVariables(IDictionary<string, string?> variables)`**: Adds or updates multiple environment variables from a dictionary. *(New)*
+* **`.WithStandardInput(string input)`**: Provides string data to the process's standard input. *(New)*
+* **`.ExecuteAsync(CancellationToken cancellationToken = default)`**: Executes the configured command asynchronously and returns an `ExecutionResult`.
+
 # Result Object
 - The ExecuteAsync method returns an ExecutionResult record with the following properties:
 

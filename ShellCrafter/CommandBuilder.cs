@@ -161,9 +161,33 @@ public class CommandBuilder
         return this;
     }
 
+
+
     public CommandBuilder WithStandardInput(string input)
     {
         _standardInput = input ?? throw new ArgumentNullException(nameof(input)); // Basic check
+        return this;
+    }
+
+    public CommandBuilder WithEnvironmentVariables(IDictionary<string, string?> variables)
+    {
+        if (variables == null)
+        {
+            throw new ArgumentNullException(nameof(variables));
+        }
+
+        foreach (var kvp in variables)
+        {
+            // Reuse validation from single method or inline check
+            if (string.IsNullOrEmpty(kvp.Key))
+            {
+                // Or collect errors and throw aggregate? For now, fail fast.
+                throw new ArgumentException("Environment variable keys in the dictionary cannot be null or empty.", nameof(variables));
+            }
+            // Add or overwrite in the internal dictionary
+            _environmentVariables[kvp.Key] = kvp.Value;
+        }
+
         return this;
     }
 }
