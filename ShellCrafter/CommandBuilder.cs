@@ -114,4 +114,5 @@ public class CommandBuilder
             stdErrorBuilder.ToString().Trim()   // Trim trailing newline
             );
     }
+
 }

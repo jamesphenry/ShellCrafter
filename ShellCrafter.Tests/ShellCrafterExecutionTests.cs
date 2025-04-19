@@ -59,4 +59,39 @@ public class ShellCrafterExecutionTests
         Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
         Check.That(result.StandardError).IsEmpty();
     }
+
+    [Spec]
+    public async Task Should_capture_standard_error_correctly()
+    {
+        // Arrange
+        string executable;
+        List<string> arguments = new();
+        const string expectedError = "ShellCrafter_Test_Error_Output"; // Unique error string
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            // Redirect stdout (1) to stderr (2) for the echo command
+            arguments.Add($"echo {expectedError} 1>&2");
+        }
+        else // Assume Linux/macOS or other POSIX-like shells
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            // Redirect stdout (1) to stderr (2) after the echo command
+            arguments.Add($"echo {expectedError} 1>&2");
+        }
+
+        // Act: Execute the command
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0); // Command itself should succeed
+        Check.That(result.StandardOutput).IsEmpty(); // Stdout should be empty
+        Check.That(result.StandardError).IsEqualTo(expectedError); // Stderr should contain the message
+    }
 }
