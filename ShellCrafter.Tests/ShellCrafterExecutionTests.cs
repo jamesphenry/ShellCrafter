@@ -5,6 +5,9 @@ using Xunit;
 using NFluent;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using Microsoft.VisualStudio.TestPlatform.Utilities;
+using System.Collections.Generic;
+using System.Text;
 
 public class ShellCrafterExecutionTests
 {
@@ -265,6 +268,57 @@ public class ShellCrafterExecutionTests
         Check.That(result.ExitCode).IsEqualTo(0);
         // StandardOutput should match the input data.
         // Our Trim() in ExecuteAsync should handle the final trailing newline from cat/powershell.
+        Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
+        Check.That(result.StandardError).IsEmpty();
+    }
+
+    [Spec]
+    public async Task Should_execute_command_with_multiple_environment_variables()
+    {
+        // Arrange
+        const string varA = "SHELLCRAFTER_MULTI_A";
+        const string valA = "Value_A";
+        const string varB = "SHELLCRAFTER_MULTI_B";
+        const string valB = "Value_B";
+
+        var variablesToAdd = new Dictionary<string, string?>
+        {
+            [varA] = valA,
+            [varB] = valB
+            // We could add a null value test later if desired
+            // ["SHELLCRAFTER_MULTI_C"] = null 
+        };
+
+        // Expect output like "Value_A_Value_B"
+        string expectedOutput = $"{valA}_{valB}";
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "cmd";
+            arguments.Add("/c");
+            // Echo vars separated by underscore
+            arguments.Add($"echo %{varA}%_%{varB}%");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "sh";
+            arguments.Add("-c");
+            // Use quotes for robustness, separate vars with underscore
+            arguments.Add($"echo \"${varA}\"_\"${varB}\"");
+        }
+
+        // Act: Use the *new* overload method (which doesn't fully work yet)
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithEnvironmentVariables(variablesToAdd) // <-- The new overload method call!
+            .WithArguments(arguments.ToArray())
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0);
         Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
         Check.That(result.StandardError).IsEmpty();
     }
