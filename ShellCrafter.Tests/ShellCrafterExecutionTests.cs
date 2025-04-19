@@ -559,4 +559,42 @@ public class ShellCrafterExecutionTests
         Check.That(stopwatch.ElapsedMilliseconds).IsStrictlyLessThan(maxWaitMilliseconds);
         Console.WriteLine($"Process tree kill attempted, threw TimeoutException after {stopwatch.ElapsedMilliseconds} ms (expected < {maxWaitMilliseconds} ms).");
     }
+
+    [Spec]
+    public async Task Should_redirect_stream_to_standard_input_correctly()
+    {
+        // Arrange
+        string inputData = $"StreamLine1{Environment.NewLine}StreamLine2";
+        string expectedOutput = inputData;
+        byte[] inputBytes = Encoding.UTF8.GetBytes(inputData); // Use UTF8 encoding
+
+        // Create a MemoryStream from the input string bytes
+        using var inputStream = new MemoryStream(inputBytes); // 'using' ensures disposal
+
+        string executable;
+        List<string> arguments = new();
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            executable = "powershell";
+            arguments.Add("-Command");
+            arguments.Add("$input | Out-String");
+        }
+        else // Assume Linux/macOS
+        {
+            executable = "cat";
+        }
+
+        var result = await ShellCrafter
+            .Command(executable)
+            .WithArguments(arguments.ToArray())
+            .WithStandardInput(inputStream)       // <-- The new stream overload call!
+            .WithTimeout(TimeSpan.FromSeconds(15))
+            .ExecuteAsync();
+
+        // Assert
+        Check.That(result.ExitCode).IsEqualTo(0);
+        Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
+        Check.That(result.StandardError).IsEmpty();
+    }
 }

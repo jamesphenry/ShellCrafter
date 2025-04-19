@@ -18,6 +18,7 @@ public class CommandBuilder
     private readonly Dictionary<string, string?> _environmentVariables = new();
     private string? _workingDirectory = null;
     private string? _standardInput = null;
+    private Stream? _standardInputStream = null;
     private IProgress<StatusUpdate>? _progressHandler = null;
     private TimeSpan? _timeout = null;
 
@@ -62,6 +63,14 @@ public class CommandBuilder
     public CommandBuilder WithStandardInput(string input)
     {
         _standardInput = input ?? throw new ArgumentNullException(nameof(input));
+        return this;
+    }
+
+    public CommandBuilder WithStandardInput(Stream inputStream)
+    {
+        _standardInputStream = inputStream ?? throw new ArgumentNullException(nameof(inputStream));
+        // Optionally check inputStream.CanRead here? Maybe defer to ExecuteAsync.
+        _standardInput = null; // Clear string input if stream is set
         return this;
     }
 
@@ -212,18 +221,41 @@ public class CommandBuilder
 
     private async Task WriteStandardInputAsync(Process process)
     {
-        if (!string.IsNullOrEmpty(_standardInput))
+        // Prioritize Stream input if provided
+        if (_standardInputStream != null) // <<< Check stream field first
         {
-            // StandardInput might be null if process creation failed subtly or RedirectStandardInput=false
+            if (!_standardInputStream.CanRead)
+            {
+                // Or handle differently? For now, throw if unreadable.
+                throw new InvalidOperationException("Provided standard input stream is not readable.");
+            }
+
+            // Get the process's input stream writer. 
+            // IMPORTANT: Using 'using' ensures Dispose/Close is called, signaling EOF to the process.
+            using (var standardInputWriter = process.StandardInput)
+            {
+                // Asynchronously copy from the user's stream to the process's input stream
+                // This will read _standardInputStream until it ends.
+                await _standardInputStream.CopyToAsync(standardInputWriter.BaseStream);
+
+                // No need to explicitly FlushAsync or Close, CopyToAsync handles awaits
+                // and the 'using' block handles disposal/closing the process stream writer.
+            }
+        }
+        // Fall back to string input if stream wasn't provided
+        else if (!string.IsNullOrEmpty(_standardInput))
+        {
             if (process.StandardInput == null)
             {
                 throw new InvalidOperationException("Standard input stream is null. Cannot write input.");
             }
             using (StreamWriter standardInputWriter = process.StandardInput)
             {
+                // Existing logic for writing string
                 await standardInputWriter.WriteAsync(_standardInput);
             }
         }
+        // If neither _standardInputStream nor _standardInput is set, do nothing.
     }
 
     private async Task HandleProcessExitAsync(Process process, KillMode killMode, Task outputCompletionTask, Task errorCompletionTask, CancellationToken effectiveToken, CancellationTokenSource? internalTimeoutCts) // <<< Use KillMode
@@ -312,4 +344,6 @@ public class CommandBuilder
             stdErrBuilder.ToString().Trim()
         );
     }
+
+
 }
