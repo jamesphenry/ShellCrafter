@@ -145,32 +145,32 @@ Console.WriteLine($"Captured StdOut Length: {capturedOutText.Length}");
 ```
 
 # API Overview
-ShellCrafter.Command(string executable): Static entry point to start building a command.
-.WithArguments(params string[] args): Adds arguments to the command line. Handles basic escaping for spaces/quotes.
-.InWorkingDirectory(string path): Sets the working directory for the process.
-.WithEnvironmentVariable(string key, string? value): Adds or updates a single environment variable.
-.WithEnvironmentVariables(IDictionary<string, string?> variables): Adds or updates multiple environment variables.
-.WithStandardInput(string input): Provides string data to the process's standard input. Clears any previously set stream input.
-.WithStandardInput(Stream inputStream): Provides data from a Stream to the process's standard input. Clears any previously set string input. ShellCrafter does not dispose the provided stream.
-.PipeStandardOutputTo(Stream target, bool captureInternal = false): Pipes standard output directly to the provided writable stream. If captureInternal is false (default), ExecutionResult.StandardOutput will be empty. Caller manages target stream disposal.
-.PipeStandardErrorTo(Stream target, bool captureInternal = false): Pipes standard error directly to the provided writable stream. If captureInternal is false (default), ExecutionResult.StandardError will be empty. Caller manages target stream disposal.
-.WithProgress(IProgress<StatusUpdate> progress): Registers a handler to receive status updates during execution (see Progress Reporting section).
-.WithTimeout(TimeSpan duration): Sets a maximum execution duration. Throws TimeoutException if exceeded. Timeout.InfiniteTimeSpan disables the timeout.
-.ExecuteAsync(CancellationToken cancellationToken = default, KillMode killMode = KillMode.NoKill): Executes the configured command asynchronously. Returns an ExecutionResult. See Cancellation Behavior section for KillMode.
-Result Object (ExecutionResult)
-The ExecuteAsync method returns an ExecutionResult record with the following properties:
-ExitCode (int): The exit code returned by the process. 0 typically indicates success.
-StandardOutput (string): The captured standard output (stdout), trimmed of leading/trailing whitespace. Will be empty if stdout was piped with captureInternal: false.
-StandardError (string): The captured standard error (stderr), trimmed of leading/trailing whitespace. Will be empty if stderr was piped with captureInternal: false.
-Succeeded (bool property): Returns true if ExitCode is 0.
-Progress Reporting (StatusUpdate)
-When using .WithProgress(), the handler receives instances derived from the base StatusUpdate record:
-ProcessStarted(int ProcessId): Process has started.
-StdOutDataReceived(string Data): Line received on stdout (data is trimmed, not reported if stdout is piped).
-StdErrDataReceived(string Data): Line received on stderr (data is trimmed, not reported if stderr is piped).
-ProcessExited(ExecutionResult Result): Process exited normally (not via cancellation).
-Cancellation Behavior (KillMode)
+- ShellCrafter.Command(string executable): Static entry point to start building a command.
+- .WithArguments(params string[] args): Adds arguments to the command line. Handles basic escaping for spaces/quotes.
+- .InWorkingDirectory(string path): Sets the working directory for the process.
+- .WithEnvironmentVariable(string key, string? value): Adds or updates a single environment variable.
+- .WithEnvironmentVariables(IDictionary<string, string?> variables): Adds or updates multiple environment variables.
+- .WithStandardInput(string input): Provides string data to the process's standard input. Clears any previously set stream input.
+- .WithStandardInput(Stream inputStream): Provides data from a Stream to the process's standard input. Clears any previously set string input. ShellCrafter does not dispose the provided stream.
+- .PipeStandardOutputTo(Stream target, bool captureInternal = false): Pipes standard output directly to the provided writable stream. If captureInternal is false (default), ExecutionResult.StandardOutput will be empty. Caller manages target stream disposal.
+- .PipeStandardErrorTo(Stream target, bool captureInternal = false): Pipes standard error directly to the provided writable stream. If captureInternal is false (default), ExecutionResult.StandardError will be empty. Caller manages target stream disposal.
+- .WithProgress(IProgress<StatusUpdate> progress): Registers a handler to receive status updates during execution (see Progress Reporting section).
+- .WithTimeout(TimeSpan duration): Sets a maximum execution duration. Throws TimeoutException if exceeded. Timeout.InfiniteTimeSpan disables the timeout.
+- .ExecuteAsync(CancellationToken cancellationToken = default, KillMode killMode = KillMode.NoKill): Executes the configured command asynchronously. Returns an ExecutionResult. See Cancellation Behavior section for KillMode.
+- Result Object (ExecutionResult)
+- The ExecuteAsync method returns an ExecutionResult record with the following properties:
+- ExitCode (int): The exit code returned by the process. 0 typically indicates success.
+- StandardOutput (string): The captured standard output (stdout), trimmed of leading/trailing whitespace. Will be empty if stdout was piped with captureInternal: false.
+- StandardError (string): The captured standard error (stderr), trimmed of leading/trailing whitespace. Will be empty if stderr was piped with captureInternal: false.
+- Succeeded (bool property): Returns true if ExitCode is 0.
+- Progress Reporting (StatusUpdate)
+# When using .WithProgress(), the handler receives instances derived from the base StatusUpdate record:
+  - ProcessStarted(int ProcessId): Process has started.
+  - StdOutDataReceived(string Data): Line received on stdout (data is trimmed, not reported if stdout is piped).
+  - StdErrDataReceived(string Data): Line received on stderr (data is trimmed, not reported if stderr is piped).
+  - ProcessExited(ExecutionResult Result): Process exited normally (not via cancellation).
+# Cancellation Behavior (KillMode)
 The ExecuteAsync method accepts a KillMode enum parameter to control behavior when cancellation occurs (either via the passed CancellationToken or an execution timeout specified by .WithTimeout()):
-KillMode.NoKill (Default): Only stops waiting; the process itself is not terminated by ShellCrafter. OperationCanceledException is thrown for external cancellation, TimeoutException for timeouts.
-KillMode.RootProcess: Attempts to kill the main process. Throws OperationCanceledException or TimeoutException.
-KillMode.ProcessTree: Attempts to kill the main
+- KillMode.NoKill (Default): Only stops waiting; the process itself is not terminated by ShellCrafter. OperationCanceledException is thrown for external cancellation, TimeoutException for timeouts.
+- KillMode.RootProcess: Attempts to kill the main process. Throws OperationCanceledException or TimeoutException.
+- KillMode.ProcessTree: Attempts to kill the main
