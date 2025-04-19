@@ -1,0 +1,8 @@
+// ShellCrafter.Tests/xunit.runner.json
+{
+  "$schema": "https://xunit.net/schema/current/xunit.runner.schema.json",
+  "parallelizeAssembly": true,
+  "parallelizeTestCollections": true,
+  "diagnosticMessages": true,
+  "methodDisplay": "method"
+}
