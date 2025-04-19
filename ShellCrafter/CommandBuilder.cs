@@ -11,6 +11,7 @@ public class CommandBuilder
 {
     private readonly string _executable;
     private readonly List<string> _arguments = new();
+    private string? _workingDirectory = null;
 
     internal CommandBuilder(string executable)
     {
@@ -35,6 +36,7 @@ public class CommandBuilder
             RedirectStandardError = true,
             UseShellExecute = false, // Required for stream redirection
             CreateNoWindow = true,  // Don't pop up a window
+            WorkingDirectory = _workingDirectory, // Set working directory if specified
             // Consider setting encoding if needed:
             // StandardOutputEncoding = Encoding.UTF8, 
             // StandardErrorEncoding = Encoding.UTF8,
@@ -115,4 +117,11 @@ public class CommandBuilder
             );
     }
 
+    public CommandBuilder InWorkingDirectory(string path)
+    {
+        // Basic validation - check if directory exists? Or let ProcessStartInfo handle it?
+        // Let's defer validation for now, ProcessStartInfo will error if invalid.
+        _workingDirectory = path;
+        return this; // Return 'this' for chaining
+    }
 }

@@ -94,4 +94,56 @@ public class ShellCrafterExecutionTests
         Check.That(result.StandardOutput).IsEmpty(); // Stdout should be empty
         Check.That(result.StandardError).IsEqualTo(expectedError); // Stderr should contain the message
     }
+
+    [Spec]
+    public async Task Should_execute_command_in_specified_working_directory()
+    {
+        // Arrange: Create a unique temp directory for this test
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"ShellCrafterTest_{Guid.NewGuid()}");
+        string fullPath = Path.GetFullPath(tempDirectory); // Get canonical full path
+        Directory.CreateDirectory(fullPath);
+
+        string executable;
+        List<string> arguments = new();
+        string expectedOutput = fullPath; // We expect the full path as output
+
+        try // Ensure cleanup happens even if asserts fail
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                executable = "cmd";
+                arguments.Add("/c");
+                arguments.Add("cd"); // 'cd' command prints the current directory on Windows
+            }
+            else // Assume Linux/macOS
+            {
+                executable = "sh";
+                arguments.Add("-c");
+                arguments.Add("pwd"); // 'pwd' prints the working directory
+                                      // Linux pwd output might have a trailing newline, Trim() should handle it
+            }
+
+            // Act: Use the *new* fluent method (which doesn't fully work yet)
+            var result = await ShellCrafter
+                .Command(executable)
+                .InWorkingDirectory(fullPath) // <-- The new method call!
+                .WithArguments(arguments.ToArray())
+                .ExecuteAsync();
+
+            // Assert
+            Check.That(result.ExitCode).IsEqualTo(0);
+            // On Windows, 'cd' might output an extra newline, Trim() handles this.
+            // On Linux, 'pwd' outputs a newline, Trim() handles this.
+            Check.That(result.StandardOutput).IsEqualTo(expectedOutput);
+            Check.That(result.StandardError).IsEmpty();
+        }
+        finally
+        {
+            // Cleanup: Delete the temporary directory
+            if (Directory.Exists(fullPath))
+            {
+                Directory.Delete(fullPath, true); // true for recursive delete
+            }
+        }
+    }
 }
