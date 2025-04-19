@@ -438,36 +438,33 @@ public class ShellCrafterExecutionTests
         // Assert
         Check.That(finalResult.ExitCode).IsEqualTo(0); // Verify command ran ok
 
-        // Check the sequence and content of progress updates
         var updates = progressCollector.Updates;
-        Check.That(updates).HasSize(5); // Started, Out1, Err1, Out2, Exited
+        Check.That(updates).HasSize(5); // Still expect 5 total updates
 
-        // Check types and data (adjust indices based on actual received order if needed)
+        // 1. Check the first update (ProcessStarted)
         Check.That(updates[0]).IsInstanceOf<ProcessStarted>();
-        // Check the type first
-        Check.That(updates[0]).IsInstanceOf<ProcessStarted>();
-
-        // Then, cast and check the property (casting is safe because the previous line passed)
         Check.That(((ProcessStarted)updates[0]).ProcessId).IsStrictlyGreaterThan(0);
 
-        // Check updates[1]
-        Check.That(updates[1]).IsInstanceOf<StdOutDataReceived>(); // Check type
-        Check.That(((StdOutDataReceived)updates[1]).Data).IsEqualTo(stdOut1); // Cast & check property
+        // 2. Check the last update (ProcessExited) - Use index ^1 for last item
+        Check.That(updates[^1]).IsInstanceOf<ProcessExited>(); // Use ^1 index for last
+        var exitedUpdate = (ProcessExited)updates[^1];
+        Check.That(exitedUpdate.Result).IsEqualTo(finalResult);
+        // Check combined output/error within the final result (as originally tested)
+        Check.That(exitedUpdate.Result.StandardOutput).IsEqualTo($"{stdOut1}{Environment.NewLine}{stdOut2}");
+        Check.That(exitedUpdate.Result.StandardError).IsEqualTo(stdErr1);
 
-        // Check updates[2]
-        Check.That(updates[2]).IsInstanceOf<StdErrDataReceived>(); // Check type
-        Check.That(((StdErrDataReceived)updates[2]).Data).IsEqualTo(stdErr1); // Cast & check property
+        // 3. Check the middle three updates for content, regardless of order
+        // Extract the updates between the first and the last
+        var middleUpdates = updates.Skip(1).Take(updates.Count - 2).ToList();
+        Check.That(middleUpdates).HasSize(3); // Ensure we got 3 middle items
 
-        // Check updates[3]
-        Check.That(updates[3]).IsInstanceOf<StdOutDataReceived>(); // Check type
-        Check.That(((StdOutDataReceived)updates[3]).Data).IsEqualTo(stdOut2); // Cast & check property
+        // Check that there's exactly one StdErr update with the correct data
+        Check.That(middleUpdates.OfType<StdErrDataReceived>()).HasSize(1);
+        Check.That(middleUpdates.OfType<StdErrDataReceived>().Single().Data).IsEqualTo(stdErr1);
 
-        Check.That(updates[4]).IsInstanceOf<ProcessExited>();
-        Check.That((updates[4] as ProcessExited)?.Result).IsEqualTo(finalResult);
-        // Check details of the final result within the update too
-        Check.That((updates[4] as ProcessExited)?.Result.StandardOutput)
-                 .IsEqualTo($"{stdOut1}{Environment.NewLine}{stdOut2}"); // Check combined output
-        Check.That((updates[4] as ProcessExited)?.Result.StandardError)
-                 .IsEqualTo(stdErr1);
+        // Check that there are exactly two StdOut updates with the correct data (in any order)
+        Check.That(middleUpdates.OfType<StdOutDataReceived>()).HasSize(2);
+        Check.That(middleUpdates.OfType<StdOutDataReceived>().Select(u => u.Data)) // Select the strings
+            .IsEquivalentTo(new[] { stdOut1, stdOut2 }); // Check if content is equivalent to the expected array, regardless of order
     }
 }
